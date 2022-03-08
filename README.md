@@ -4,7 +4,8 @@ Sources de l'opérateur Nginx pour Cloud Sud 2022
 # Déroulé de la démo
 ## Initialisation du projet
  - [installer / mettre](https://sdk.operatorframework.io/docs/installation/) à jour la dernière version du [Operator SDK](https://sdk.operatorframework.io/) (v1.18.0 au moment de l'écriture du readme)
- - scaffolding du projet avec Quarkus : `operator-sdk init --plugins quarkus --domain fr.wilda --project-name cloud-sud-nginx`
+ - créer le répertoire `cloud-sud-nginx`: `mkdir cloud-sud-nginx`
+ - dans le répertoire `cloud-sud-nginx`, scaffolding du projet avec Quarkus : `operator-sdk init --plugins quarkus --domain fr.wilda --project-name cloud-sud-nginx`
  - l'arborescence générée est la suivante:
     ```bash
     .
@@ -153,4 +154,49 @@ Sources de l'opérateur Nginx pour Cloud Sud 2022
                     name:
                       type: string
                   type: object
+      ```
+## Le retour du Hello World
+Pour finir de valider notre opérateur, créons un Hello World.
+ - modifier le reconciler `NginxOperatorReconciler.java`:
+    ```java
+    public class NginxOperatorReconciler implements Reconciler<NginxOperator> { 
+      private final KubernetesClient client;
+
+      public NginxOperatorReconciler(KubernetesClient client) {
+        this.client = client;
+      }
+
+      @Override
+      public UpdateControl<NginxOperator> reconcile(NginxOperator resource, Context context) {
+
+        System.out.println(String.format("Hello %s 🎉🎉 !!", resource.getSpec().getName()));
+
+        return UpdateControl.noUpdate();
+      }
+
+      @Override
+      public DeleteControl cleanup(NginxOperator resource, Context context) {
+        System.out.println(String.format("Goodbye %s 😢", resource.getSpec().getName()));
+
+        return Reconciler.super.cleanup(resource, context);
+      }
+    }    
+    ```
+  - créer le namespace `test-helloworld-operator`: `kubectl create ns test-helloworld-operator`
+  - créer la CR `src/test/resources/cr-test-hello-world.yaml` pour tester:
+      ```yaml
+      apiVersion: "fr.wilda/v1"
+      kind: NginxOperator
+      metadata:
+        name: hello-world
+      spec:
+        name: Cloud Sud 2022      
+      ```
+  - créer la CR dans Kubernetes : `kubectl apply -f ./src/test/resources/cr-test-hello-world.yaml -n test-helloworld-operator`
+  - la sortie de l'opérateur devrait afficher le message `Hello Cloud Sud 2022 🎉🎉 !!`
+  - supprimer la CR : `kubectl delete nginxOperator/hello-world -n test-helloworld-operator`
+  - la sortie de l'opérateur devrait ressembler à cela:
+      ```bash
+      Hello Cloud Sud 2022 🎉🎉 !!
+      Goodbye Cloud Sud 2022 😢 
       ```
