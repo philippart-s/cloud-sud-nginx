@@ -525,3 +525,96 @@ Pour finir de valider notre opérateur, créons un Hello World.
     $ kubectl get svc  -n test-nginx-operator
     No resources found in test-nginx-operator namespace.    
     ```
+## Packaging et déploiement
+ - modifier le fichier `application.properties`:
+    ```properties
+    quarkus.container-image.build=true
+    quarkus.container-image.push=false
+    quarkus.container-image.group=wilda
+    quarkus.container-image.name=cloud-sud-nginx-operator
+
+    # set to true to automatically apply CRDs to the cluster when they get regenerated
+    quarkus.operator-sdk.crd.apply=true
+    # set to true to automatically generate CSV from your code
+    quarkus.operator-sdk.generate-csv=false
+
+    quarkus.log.level=INFO
+
+    quarkus.kubernetes.namespace=cloud-sud-nginx-operator
+    ```
+ - ajouter un fichier `src/main/kubernetes/kubernetes.yml` contenant la définition des _ClusterRole_ / _ClusterRoleBinding_ spécifiques à l'opérateur:
+    ```yaml
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: service-deployment-cluster-role
+      namespace: cloud-sud-nginx-operator
+    rules:
+      - apiGroups:
+        - ""
+        resources:
+        - secrets
+        - serviceaccounts
+        - services  
+        verbs:
+        - "*"
+      - apiGroups:
+        - "apps"
+        verbs:
+          - "*"
+        resources:
+        - deployments
+    ---
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: service-deployment-cluster-role-binding
+      namespace: cloud-sud-nginx-operator
+    roleRef:
+      kind: ClusterRole
+      apiGroup: rbac.authorization.k8s.io
+      name: service-deployment-cluster-role
+    subjects:
+      - kind: ServiceAccount
+        name: cloud-sud-nginx-operator
+        namespace: cloud-sud-nginx-operator
+    ---
+    ```
+- lancer le packaging : `mvn clean package`
+- vérifier que l'image a bien été générée: : `docker images | grep cloud-sud`:
+    ```bash
+    wilda/cloud-sud-nginx-operator          0.0.1-SNAPSHOT         97dac3e852da   5 minutes ago   232MB
+    ```
+- push de l'image : `docker login` && `docker push wilda/cloud-sud-nginx-operator:0.0.1-SNAPSHOT`
+- créer le namespace `cloud-sud-nginx-operator`: `kubectl create ns cloud-sud-nginx-operator`
+- si nécessaire créer la CRD: `kubectl apply -f ./target/kubernetes/nginxoperators.fr.wilda-v1.yml`
+- appliquer le manifest créé : `kubectl apply -f ./target/kubernetes/kubernetes.yml`
+- vérifier que tout va bien:
+    ```bash
+    $ kubectl get pod -n cloud-sud-nginx-operator
+
+    NAME                                        READY   STATUS    RESTARTS   AGE
+    cloud-sud-nginx-operator-5649886754-5lgd5   1/1     Running   0          2m15s    
+
+    $ kubectl logs cloud-sud-nginx-operator-5649886754-5lgd5 -n cloud-sud-nginx-operator
+    __  ____  __  _____   ___  __ ____  ______ 
+    --/ __ \/ / / / _ | / _ \/ //_/ / / / __/ 
+    -/ /_/ / /_/ / __ |/ , _/ ,< / /_/ /\ \   
+    --\___\_\____/_/ |_/_/|_/_/|_|\____/___/   
+    2022-03-09 14:37:17,922 INFO  [io.jav.ope.Operator] (main) Registered reconciler: 'nginxoperatorreconciler' for resource: 'class wilda.fr.NginxOperator' for namespace(s): [all namespaces]
+    2022-03-09 14:37:17,932 INFO  [io.qua.ope.run.AppEventListener] (main) Quarkus Java Operator SDK extension 3.0.2 (commit: 6233ac1 on branch: 6233ac1e71f56d4c52072ab7d2f7cf40591b44d3) built on Mon Jan 24 08:24:35 GMT 2022
+    2022-03-09 14:37:17,932 INFO  [io.jav.ope.Operator] (main) Operator SDK 2.0.2 (commit: ba03d9e) built on Thu Jan 20 10:22:23 GMT 2022 starting...
+    2022-03-09 14:37:17,933 INFO  [io.jav.ope.Operator] (main) Client version: 5.11.2
+    2022-03-09 14:37:18,702 INFO  [io.quarkus] (main) cloud-sud-nginx 0.0.1-SNAPSHOT on JVM (powered by Quarkus 2.6.3.Final) started in 2.708s. Listening on: http://0.0.0.0:8080
+    2022-03-09 14:37:18,702 INFO  [io.quarkus] (main) Profile prod activated. 
+    2022-03-09 14:37:18,703 INFO  [io.quarkus] (main) Installed features: [cdi, kubernetes, kubernetes-client, micrometer, openshift-client, operator-sdk, smallrye-context-propagation, smallrye-health, vertx]
+    ```
+- tester l'opérateur en créant une CR: `kubectl apply -f ./src/test/resources/cr-test-nginx-operator.yaml -n test-nginx-operator`
+- puis en la supprimant: `kubectl delete nginxOperator/nginx-cloud-sud -n test-nginx-operator`
+- et constater que tout va bien:
+```bash
+  🛠️  Create / update Nginx resource operator ! 🛠️                                  
+  ⚡ Event receive on watcher ! ⚡ ➡️ ADDED
+  💀 Delete Nginx resource operator ! 💀            
+```
+- supprimer l'opérateur si souhaité: `kubectl delete -f ./target/kubernetes/kubernetes.yml`
