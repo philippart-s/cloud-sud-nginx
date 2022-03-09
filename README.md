@@ -423,7 +423,7 @@ Pour finir de valider notre opérateur, créons un Hello World.
           @Override
           public void onClose(WatcherException cause) {
             System.out.println("☠️ Watcher closed due to unexpected error : " + cause);
-            
+
             // To get ride of error : io.fabric8.kubernetes.client.WatcherException: too old resource version: 28129827227 (28130338369)
             // Either set a flag to recreate a watcher
             // Or use SharedInformerFactory : https://stackoverflow.com/a/61437982
@@ -451,4 +451,77 @@ Pour finir de valider notre opérateur, créons un Hello World.
     ⚡ Event receive on watcher ! ⚡ ➡️ ADDED
     ⚡ Event receive on watcher ! ⚡ ➡️ MODIFIED
     ```
+## Eviter le jour de la marmotte
+ - modifier le reconciler `NginxOperatorReconciler.java`:
+    ```java
+    public class NginxOperatorReconciler implements Reconciler<NginxOperator> {
+      private final KubernetesClient client;
+      private Watch serviceWatcher;
 
+      // ...
+
+      @Override
+      public UpdateControl<NginxOperator> reconcile(NginxOperator resource, Context context) {
+
+        System.out.println("🛠️  Create / update Nginx resource operator ! 🛠️");
+
+        // ...
+
+        // Watch if the service is deleted: recreate it
+        serviceWatcher = client.services().inNamespace(namespace).watch(new Watcher<Service>() {
+          @Override
+          public void eventReceived(Action action, Service resource) {
+            System.out.println("⚡ Event receive on watcher ! ⚡ ➡️ " + action.name());
+
+            if (action == Action.DELETED) {
+              System.out.println("🗑️  Service deleted, recreate it ! 🗑️");
+
+              client.services().inNamespace(namespace).createOrReplace(service);
+            }
+          }
+
+          @Override
+          public void onClose(WatcherException cause) {
+            System.out.println("☠️ Watcher closed due to unexpected error : " + cause);
+
+            // To get ride of error : io.fabric8.kubernetes.client.WatcherException: too old resource
+            // version: 28129827227 (28130338369)
+            // Either set a flag to recreate a watcher
+            // Or use SharedInformerFactory : https://stackoverflow.com/a/61437982
+          }
+        });
+
+        return UpdateControl.noUpdate();
+      }
+
+      @Override
+      public DeleteControl cleanup(NginxOperator resource, Context context) {
+        System.out.println("💀 Delete Nginx resource operator ! 💀");
+
+        // To avoid the automatic recreation
+        if (serviceWatcher != null) serviceWatcher.close();
+
+        client.apps().deployments().inNamespace(resource.getMetadata().getNamespace()).delete();
+        client.services().inNamespace(resource.getMetadata().getNamespace()).withName("nginx-service")
+            .delete();
+
+        return Reconciler.super.cleanup(resource, context);
+      }
+
+      // ...
+    }    
+    ```
+ - créer la CR `cr-test-nginx-operator.yaml`: `kubectl apply -f ./src/test/resources/cr-test-nginx-operator.yaml -n test-nginx-operator`
+ - supprimer la CR: `kubectl delete nginxOperator/nginx-cloud-sud -n test-nginx-operator`
+ - l'opérateur ne recrée pas le service:
+    ```bash
+    🛠️  Create / update Nginx resource operator ! 🛠️
+    ⚡ Event receive on watcher ! ⚡ ➡️ ADDED
+    ⚡ Event receive on watcher ! ⚡ ➡️ MODIFIED
+    💀 Delete Nginx resource operator ! 💀    
+    ```
+ - vérifier que tout a été supprimé: 
+    ```bash
+    $ kubectl get svc  -n test-nginx-operator
+    No resources found in test-nginx-operator namespace.    
+    ```
