@@ -201,7 +201,7 @@ Pour finir de valider notre opérateur, créons un Hello World.
       Goodbye Cloud Sud 2022 😢 
       ```
 ## Gestion du serveur Nginx
-  - modifier la classe `NginxOperatorSpec.java`:
+ - modifier la classe `NginxOperatorSpec.java`:
       ```java
       public class NginxOperatorSpec {
 
@@ -225,7 +225,7 @@ Pour finir de valider notre opérateur, créons un Hello World.
         }
       }
       ```
-  - pour simplifier la création du Pod et du Service pour Nginx on passe par des manifests en YAML.
+ - pour simplifier la création du Pod et du Service pour Nginx on passe par des manifests en YAML.
     `src/main/resources/k8s/nginx-deployment.yaml`:
       ```yaml
       apiVersion: apps/v1
@@ -266,7 +266,7 @@ Pour finir de valider notre opérateur, créons un Hello World.
           targetPort: 80
         type: LoadBalancer
      ```
-  - modifier le reconciler `NginxOperatorReconciler.java`:
+ - modifier le reconciler `NginxOperatorReconciler.java`:
     ```java
     public class NginxOperatorReconciler implements Reconciler<NginxOperator> {
       private final KubernetesClient client;
@@ -324,8 +324,8 @@ Pour finir de valider notre opérateur, créons un Hello World.
       }
     }
     ```
-  - créer le namespace `test-nginx-operator`: `kubectl create ns test-nginx-operator`
-  - créer la CR: `src/test/resources/cr-test-nginx-operator.yaml`:
+ - créer le namespace `test-nginx-operator`: `kubectl create ns test-nginx-operator`
+ - créer la CR: `src/test/resources/cr-test-nginx-operator.yaml`:
       ```yaml
       apiVersion: "fr.wilda/v1"
       kind: NginxOperator
@@ -335,8 +335,8 @@ Pour finir de valider notre opérateur, créons un Hello World.
         replicaCount: 1
         port: 80
       ```
-  - puis l'appliquer sur Kubernetes: `kubectl apply -f ./src/test/resources/cr-test-nginx-operator.yaml -n test-nginx-operator`
-  - l'opérateur devrait créer le pod Nginx et son service associé:
+ - puis l'appliquer sur Kubernetes: `kubectl apply -f ./src/test/resources/cr-test-nginx-operator.yaml -n test-nginx-operator`
+ - l'opérateur devrait créer le pod Nginx et son service associé:
       Dans le terminal du quarkus:
       ```bash
       🛠️  Create / update Nginx resource operator ! 🛠️
@@ -351,8 +351,8 @@ Pour finir de valider notre opérateur, créons un Hello World.
       NAME                    TYPE           CLUSTER-IP     EXTERNAL-IP     PORT(S)        AGE
       service/nginx-service   LoadBalancer   10.3.108.159   51.XXX.XXX.178   80:30751/TCP   110s      
       ```
-  - tester dans un navigateur ou par un curl l'accès à `http://51.XXX.XXX.178`
-  - changer le port et le nombre de replicas dans la CR `cr-test-nginx-operator.yaml`:
+ - tester dans un navigateur ou par un curl l'accès à `http://51.XXX.XXX.178`
+ - changer le port et le nombre de replicas dans la CR `cr-test-nginx-operator.yaml`:
       ```yaml
       apiVersion: "fr.wilda/v1"
       kind: NginxOperator
@@ -362,8 +362,8 @@ Pour finir de valider notre opérateur, créons un Hello World.
         replicaCount: 2
         port: 8080
       ```
-  - appliquer la CR: `kubectl apply -f ./src/test/resources/cr-test-nginx-operator.yaml -n test-nginx-operator`
-  - vérifier que le nombre de pods et le port ont bien changés:
+ - appliquer la CR: `kubectl apply -f ./src/test/resources/cr-test-nginx-operator.yaml -n test-nginx-operator`
+ - vérifier que le nombre de pods et le port ont bien changés:
     ```bash
     $ kubectl get pod,svc  -n test-nginx-operator
 
@@ -374,5 +374,81 @@ Pour finir de valider notre opérateur, créons un Hello World.
     NAME                    TYPE           CLUSTER-IP     EXTERNAL-IP     PORT(S)          AGE
     service/nginx-service   LoadBalancer   10.3.108.159   51.XXX.XXX.178   8080:30751/TCP   19m
     ```
-  - tester dans un navigateur ou par un curl l'accès à `http://51.XXX.XXX.178:8080`
+ - tester dans un navigateur ou par un curl l'accès à `http://51.XXX.XXX.178:8080`
+
+## Un Ops dans le moteur
+ - supprimer le service: `kubectl delete svc/nginx-service -n test-nginx-operator`
+ - vérifier qu'il n'est pas recréé:
+    ```bash
+    $ kubectl get svc  -n test-nginx-operator
+
+    No resources found in test-nginx-operator namespace.
+    ```
+ - recréer le service : `kubectl apply -f ./src/main/resources/k8s/nginx-service.yaml -n test-nginx-operator`
+ - modifier le reconciler `NginxOperatorReconciler.java` pour qu'il surveille le service:
+    ```java
+    public UpdateControl<NginxOperator> reconcile(NginxOperator resource, Context context) {
+
+        System.out.println("🛠️  Create / update Nginx resource operator ! 🛠️");
+
+        String namespace = resource.getMetadata().getNamespace();
+
+        // Load the Nginx deployment
+        Deployment deployment = loadYaml(Deployment.class, "/k8s/nginx-deployment.yaml");
+        // Apply the number of replicas and namespace
+        deployment.getSpec().setReplicas(resource.getSpec().getReplicaCount());
+        deployment.getMetadata().setNamespace(namespace);
+
+        // Create or update Nginx server
+        client.apps().deployments().inNamespace(namespace).createOrReplace(deployment);
+
+        // Create service
+        Service service = loadYaml(Service.class, "/k8s/nginx-service.yaml");
+        service.getSpec().getPorts().get(0).setPort(resource.getSpec().getPort());
+        client.services().inNamespace(namespace).createOrReplace(service);
+
+        // Watch if the service is deleted: recreate it
+        client.services().inNamespace(namespace).watch(new Watcher<Service>() {
+          @Override
+          public void eventReceived(Action action, Service resource) {
+            System.out.println("⚡ Event receive on watcher ! ⚡ ➡️ " + action.name());
+
+            if (action == Action.DELETED) {
+              System.out.println("🗑️  Service deleted, recreate it ! 🗑️");
+
+              client.services().inNamespace(namespace).createOrReplace(service);
+            }
+          }
+
+          @Override
+          public void onClose(WatcherException cause) {
+            System.out.println("☠️ Watcher closed due to unexpected error : " + cause);
+            
+            // To get ride of error : io.fabric8.kubernetes.client.WatcherException: too old resource version: 28129827227 (28130338369)
+            // Either set a flag to recreate a watcher
+            // Or use SharedInformerFactory : https://stackoverflow.com/a/61437982
+
+          }
+        });
+
+        return UpdateControl.noUpdate();
+      }
+    ```
+- supprimer le service: `kubectl delete svc/nginx-service -n test-nginx-operator`
+- l'opérateur le recrée:
+    ```bash
+    Service deleted, recreate it ! 🗑️
+    ⚡ Event receive on watcher ! ⚡ ➡️ ADDED
+    ⚡ Event receive on watcher ! ⚡ ➡️ MODIFIED    
+    ```
+ - supprimer la CR: `kubectl delete nginxOperator/nginx-cloud-sud -n test-nginx-operator`
+ - constater que l'opérateur recrée le service:
+    ```bash
+    💀 Delete Nginx resource operator ! 💀
+    ⚡ Event receive on watcher ! ⚡ ➡️ MODIFIED
+    ⚡ Event receive on watcher ! ⚡ ➡️ DELETED
+    🗑️  Service deleted, recreate it ! 🗑️
+    ⚡ Event receive on watcher ! ⚡ ➡️ ADDED
+    ⚡ Event receive on watcher ! ⚡ ➡️ MODIFIED
+    ```
 

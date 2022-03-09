@@ -5,6 +5,8 @@ import java.io.InputStream;
 import io.fabric8.kubernetes.api.model.Service;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
 import io.fabric8.kubernetes.client.KubernetesClient;
+import io.fabric8.kubernetes.client.Watcher;
+import io.fabric8.kubernetes.client.WatcherException;
 import io.fabric8.kubernetes.client.utils.Serialization;
 import io.javaoperatorsdk.operator.api.reconciler.Context;
 import io.javaoperatorsdk.operator.api.reconciler.DeleteControl;
@@ -39,6 +41,30 @@ public class NginxOperatorReconciler implements Reconciler<NginxOperator> {
     service.getSpec().getPorts().get(0).setPort(resource.getSpec().getPort());
     client.services().inNamespace(namespace).createOrReplace(service);
 
+    // Watch if the service is deleted: recreate it
+    client.services().inNamespace(namespace).watch(new Watcher<Service>() {
+      @Override
+      public void eventReceived(Action action, Service resource) {
+        System.out.println("⚡ Event receive on watcher ! ⚡ ➡️ " + action.name());
+
+        if (action == Action.DELETED) {
+          System.out.println("🗑️  Service deleted, recreate it ! 🗑️");
+
+          client.services().inNamespace(namespace).createOrReplace(service);
+        }
+      }
+
+      @Override
+      public void onClose(WatcherException cause) {
+        System.out.println("☠️ Watcher closed due to unexpected error : " + cause);
+
+        // To get ride of error : io.fabric8.kubernetes.client.WatcherException: too old resource
+        // version: 28129827227 (28130338369)
+        // Either set a flag to recreate a watcher
+        // Or use SharedInformerFactory : https://stackoverflow.com/a/61437982
+      }
+    });
+
     return UpdateControl.noUpdate();
   }
 
@@ -47,7 +73,8 @@ public class NginxOperatorReconciler implements Reconciler<NginxOperator> {
     System.out.println("💀 Delete Nginx resource operator ! 💀");
 
     client.apps().deployments().inNamespace(resource.getMetadata().getNamespace()).delete();
-    client.services().inNamespace(resource.getMetadata().getNamespace()).withName("nginx-service").delete();
+    client.services().inNamespace(resource.getMetadata().getNamespace()).withName("nginx-service")
+        .delete();
 
     return Reconciler.super.cleanup(resource, context);
   }
