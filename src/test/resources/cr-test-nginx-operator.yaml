@@ -3,5 +3,5 @@ kind: NginxOperator
 metadata:
   name: nginx-cloud-sud
 spec:
-  replicaCount: 1
-  port: 80
+  replicaCount: 2
+  port: 8080

@@ -352,3 +352,27 @@ Pour finir de valider notre opérateur, créons un Hello World.
       service/nginx-service   LoadBalancer   10.3.108.159   51.XXX.XXX.178   80:30751/TCP   110s      
       ```
   - tester dans un navigateur ou par un curl l'accès à `http://51.XXX.XXX.178`
+  - changer le port et le nombre de replicas dans la CR `cr-test-nginx-operator.yaml`:
+      ```yaml
+      apiVersion: "fr.wilda/v1"
+      kind: NginxOperator
+      metadata:
+        name: nginx-cloud-sud
+      spec:
+        replicaCount: 2
+        port: 8080
+      ```
+  - appliquer la CR: `kubectl apply -f ./src/test/resources/cr-test-nginx-operator.yaml -n test-nginx-operator`
+  - vérifier que le nombre de pods et le port ont bien changés:
+    ```bash
+    $ kubectl get pod,svc  -n test-nginx-operator
+
+    NAME                                    READY   STATUS    RESTARTS   AGE
+    pod/nginx-deployment-84c7b56775-7w6jp   1/1     Running   0          4m59s
+    pod/nginx-deployment-84c7b56775-kzsjq   1/1     Running   0          19m
+
+    NAME                    TYPE           CLUSTER-IP     EXTERNAL-IP     PORT(S)          AGE
+    service/nginx-service   LoadBalancer   10.3.108.159   51.XXX.XXX.178   8080:30751/TCP   19m
+    ```
+  - tester dans un navigateur ou par un curl l'accès à `http://51.XXX.XXX.178:8080`
+
