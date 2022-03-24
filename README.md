@@ -1,6 +1,8 @@
 # cloud-sud-nginx
 Sources de l'opérateur Nginx pour Cloud Sud 2022
 
+[Slides](https://noti.st/philippart-s/kuH9Z3/developper-un-operateur-kubernetes-en-java-cest-possible)
+
 # Déroulé de la démo
 ## Initialisation du projet
  - [installer / mettre](https://sdk.operatorframework.io/docs/installation/) à jour la dernière version du [Operator SDK](https://sdk.operatorframework.io/) (v1.18.0 au moment de l'écriture du readme)
